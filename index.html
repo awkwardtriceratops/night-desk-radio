@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141a2b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Night Desk">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%230b0e18'/%3E%3Ccircle cx='50' cy='50' r='16' fill='%23e59b72'/%3E%3C/svg%3E">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:#141a2b}</style>
+<title>Night Desk Radio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one screen, a vinyl record you tap, the now-playing card under it. Single dark "late night desk" look by choice. */
+:root {
+  --ink: #141a2b;
+  --ink-2: #1d2540;
+  --paper: #e8e3d8;
+  --muted: #8f97b3;
+  --label: #e59b72;
+  --groove: #0b0e18;
+  --display: "Young Serif", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: radial-gradient(120% 80% at 50% 0%, var(--ink-2), var(--ink) 70%) var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+canvas#rain { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: .5; }
+main {
+  position: relative;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  text-align: center;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(1.6rem, 6vw, 2.2rem);
+  margin: 0;
+  letter-spacing: .01em;
+  text-wrap: balance;
+}
+.record {
+  --size: min(72vw, 46vh, 340px);
+  width: var(--size); height: var(--size);
+  max-width: 100%;
+  border-radius: 50%;
+  border: 0; padding: 0; cursor: pointer;
+  background:
+    radial-gradient(circle, var(--label) 0 17%, var(--groove) 17.5% 19%, transparent 19%),
+    repeating-radial-gradient(circle, #1a1f2e 0 1px, var(--groove) 1px 3px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.55), inset 0 0 0 6px #070910;
+  position: relative;
+  display: grid; place-items: center;
+  animation: spin 3.2s linear infinite;
+  animation-play-state: paused;
+}
+.record::after { /* sheen */
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 30deg, transparent 0 20%, rgba(255,255,255,.07) 25%, transparent 32% 70%, rgba(255,255,255,.05) 75%, transparent 82%);
+}
+.record.on { animation-play-state: running; }
+.record:focus-visible { outline: 3px solid var(--label); outline-offset: 6px; }
+.icon {
+  position: relative; z-index: 1;
+  width: 22%; height: 22%;
+  display: grid; place-items: center;
+  color: var(--ink);
+  transition: transform .15s;
+}
+.icon svg { width: 60%; height: 60%; fill: currentColor; }
+.record.pulse .icon { transform: scale(1.08); }
+.now { display: grid; gap: 6px; min-width: 0; max-width: 34ch; }
+.eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.track { font-family: var(--display); font-size: 1.25rem; overflow-wrap: anywhere; }
+.meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.btn {
+  font: 500 13px var(--mono);
+  color: var(--paper);
+  background: rgba(232,227,216,.06);
+  border: 1px solid rgba(232,227,216,.18);
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+.btn:hover { background: rgba(232,227,216,.12); }
+.btn:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.btn[disabled] { opacity: .4; cursor: default; }
+.hint { font-size: 11px; color: var(--muted); max-width: 36ch; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) {
+  .record { animation: none; }
+  canvas#rain { display: none; }
+}
+</style>
+
+</head>
+<body>
+<canvas id="rain" aria-hidden="true"></canvas>
+<main>
+  <h1>Night Desk Radio</h1>
+  <button class="record" id="play" aria-label="Play">
+    <span class="icon" id="icon"></span>
+  </button>
+  <div class="now" aria-live="polite">
+    <span class="eyebrow" id="status">Tap the record</span>
+    <span class="track" id="track">rainy window</span>
+    <span class="meta" id="meta">74 BPM · D♭ major</span>
+  </div>
+  <div class="controls">
+    <button class="btn" id="next" disabled>Next track</button>
+  </div>
+  <p class="hint">Every beat is made live on your phone, so it never repeats and never ends. Turn your ringer on if you hear nothing on iPhone.</p>
+</main>
+
+<script>
+(() => {
+  const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>';
+  const PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>';
+  const $ = id => document.getElementById(id);
+  const playBtn = $('play'), icon = $('icon'), nextBtn = $('next');
+  icon.innerHTML = PLAY;
+
+  /* ---------- music theory ---------- */
+  const KEYS = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+  const Q = {
+    maj9: [4,7,11,14], m9: [3,7,10,14], '13': [4,10,14,21], m7: [3,7,10,15], sus: [5,7,10,14], maj7: [4,7,11,16]
+  };
+  const PROGS = [
+    [[2,'m9'],[7,'13'],[0,'maj9'],[9,'m9']],
+    [[0,'maj9'],[9,'m9'],[5,'maj9'],[7,'sus']],
+    [[9,'m9'],[5,'maj9'],[0,'maj7'],[7,'13']],
+    [[5,'maj9'],[4,'m7'],[2,'m9'],[0,'maj9']],
+    [[2,'m9'],[7,'13'],[4,'m7'],[9,'m9']],
+    [[5,'maj7'],[7,'sus'],[4,'m7'],[9,'m9']],
+  ];
+  const PENTA = [0,2,4,7,9,12,14,16];
+  const ADJ = ['rainy','sleepy','late','quiet','warm','foggy','slow','soft','blue','paper','dusty','lamp-lit','Sunday','4am','chamomile','window-seat'];
+  const NOUN = ['window','bus home','library','notebook','tea','margins','radiator','highlighters','study hall','flashcards','city lights','headphones','cardigan','last chapter','raincoat','desk lamp'];
+  const pick = a => a[Math.floor(Math.random()*a.length)];
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  /* ---------- audio ---------- */
+  let ctx, master, reverb, delayIn, wobble, noiseBuf, vinylSrc;
+  let song, step = 0, bar = 0, nextTime = 0, timer = null, playing = false, melNote = 3;
+  const BARS = 32;
+
+  function makeNoise(seconds) {
+    const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+
+  function setup() {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.ratio.value = 3;
+    const tape = ctx.createBiquadFilter();
+    tape.type = 'lowpass'; tape.frequency.value = 3800; tape.Q.value = .4;
+    master = ctx.createGain(); master.gain.value = .8;
+    master.connect(tape); tape.connect(comp); comp.connect(ctx.destination);
+
+    // reverb from decaying noise
+    reverb = ctx.createConvolver();
+    const len = ctx.sampleRate * 2.8, ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 3);
+    }
+    reverb.buffer = ir;
+    const revOut = ctx.createGain(); revOut.gain.value = .35;
+    reverb.connect(revOut); revOut.connect(master);
+
+    // dotted-eighth-ish echo for the melody
+    delayIn = ctx.createGain();
+    const dl = ctx.createDelay(2), fb = ctx.createGain(), dlf = ctx.createBiquadFilter();
+    dl.delayTime.value = .55; fb.gain.value = .38; dlf.type = 'lowpass'; dlf.frequency.value = 1600;
+    delayIn.connect(dl); dl.connect(dlf); dlf.connect(fb); fb.connect(dl); dlf.connect(master); dlf.connect(reverb);
+
+    // tape wobble: slow detune LFO shared by every pitched voice
+    const lfo = ctx.createOscillator(); lfo.frequency.value = .35;
+    wobble = ctx.createGain(); wobble.gain.value = 9;
+    lfo.connect(wobble); lfo.start();
+
+    noiseBuf = makeNoise(2);
+
+    // vinyl: soft hiss + random crackle pops, looped
+    const vb = ctx.createBuffer(1, ctx.sampleRate * 6, ctx.sampleRate), vd = vb.getChannelData(0);
+    for (let i = 0; i < vd.length; i++) {
+      vd[i] = (Math.random()*2-1) * .012;
+      if (Math.random() < .00035) { const amp = Math.random() * .5; for (let k = 0; k < 40 && i+k < vd.length; k++) vd[i+k] += (Math.random()*2-1) * amp * (1 - k/40); }
+    }
+    vinylSrc = ctx.createBufferSource(); vinylSrc.buffer = vb; vinylSrc.loop = true;
+    const vhp = ctx.createBiquadFilter(); vhp.type = 'highpass'; vhp.frequency.value = 900;
+    const vg = ctx.createGain(); vg.gain.value = .9;
+    vinylSrc.connect(vhp); vhp.connect(vg); vg.connect(master); vinylSrc.start();
+  }
+
+  function osc(type, freq, t, end, dest) {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
+    wobble.connect(o.detune);
+    o.connect(dest); o.start(t); o.stop(end);
+    o.onended = () => { try { wobble.disconnect(o.detune); } catch (e) {} };
+    return o;
+  }
+
+  function keys(t, midi, dur, vel) {
+    const g = ctx.createGain(), f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 1500;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vel, t + .015);
+    g.gain.exponentialRampToValueAtTime(vel * .35, t + .9);
+    g.gain.setValueAtTime(vel * .35, t + dur);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur + .8);
+    const end = t + dur + .9, fr = mtof(midi);
+    osc('sine', fr, t, end, f);
+    osc('triangle', fr * 1.002, t, end, f);
+    const bell = ctx.createGain(); bell.gain.value = .12; bell.connect(f);
+    osc('sine', fr * 4, t, end, bell);
+    f.connect(g); g.connect(master);
+    const s = ctx.createGain(); s.gain.value = .5; g.connect(s); s.connect(reverb);
+  }
+
+  function bass(t, midi, dur) {
+    const g = ctx.createGain(), f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 260;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(.55, t + .03);
+    g.gain.setValueAtTime(.45, t + dur * .8);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    osc('sine', mtof(midi), t, t + dur + .05, f);
+    osc('triangle', mtof(midi), t, t + dur + .05, f);
+    f.connect(g); g.connect(master);
+  }
+
+  function lead(t, midi, vel) {
+    const g = ctx.createGain(), f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 2200;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vel, t + .01);
+    g.gain.exponentialRampToValueAtTime(.0001, t + 1.1);
+    osc('triangle', mtof(midi), t, t + 1.2, f);
+    f.connect(g); g.connect(master); g.connect(delayIn);
+    const s = ctx.createGain(); s.gain.value = .6; g.connect(s); s.connect(reverb);
+  }
+
+  function kick(t, vel) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(115, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + .14);
+    g.gain.setValueAtTime(vel, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .45);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + .5);
+  }
+
+  function noiseHit(t, type, freq, q, vel, decay, wet) {
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + decay);
+    n.connect(f); f.connect(g); g.connect(master);
+    if (wet) { const s = ctx.createGain(); s.gain.value = wet; g.connect(s); s.connect(reverb); }
+    n.start(t, Math.random()); n.stop(t + decay + .05);
+  }
+
+  function snare(t, vel) {
+    noiseHit(t, 'bandpass', 1700, .8, vel * .42, .22, .5);
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'triangle'; o.frequency.value = 185;
+    g.gain.setValueAtTime(vel * .25, t); g.gain.exponentialRampToValueAtTime(.001, t + .1);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + .12);
+  }
+  const hat = (t, vel) => noiseHit(t, 'highpass', 7000, .5, vel * .09, .045, 0);
+
+  /* ---------- song structure ---------- */
+  function newSong() {
+    song = {
+      key: Math.floor(Math.random() * 12),
+      bpm: 68 + Math.floor(Math.random() * 15),
+      prog: pick(PROGS),
+      name: `${pick(ADJ)} ${pick(NOUN)}`,
+      stabs: Math.random() < .5,
+    };
+    bar = 0; step = 0;
+    $('track').textContent = song.name;
+    updateMeta();
+  }
+  function updateMeta() {
+    $('meta').textContent = `${song.bpm} BPM · ${KEYS[song.key]} major · bar ${bar + 1}/${BARS}`;
+  }
+
+  function chordFor(b) {
+    const [deg, q] = song.prog[b % song.prog.length];
+    let root = 48 + ((song.key + deg) % 12);       // C3..B3
+    if (root > 53) root -= 12;
+    return { root, notes: Q[q].map(i => root + i + (root < 46 ? 12 : 0)) };
+  }
+
+  function scheduleStep(s, t) {
+    const sd = 60 / song.bpm / 4;
+    const swing = (s % 2) ? sd * .28 : 0;
+    const time = t + swing + (Math.random() - .5) * .008;
+    const intro = bar < 2, breakdown = bar >= 16 && bar < 18, outro = bar >= BARS - 1;
+    const drums = !intro && !breakdown && !outro;
+    const ch = chordFor(bar);
+
+    if (s === 0) {
+      ch.notes.forEach((n, i) => keys(time + i * .025, n, sd * 15, .085));
+      if (!intro) bass(time, ch.root - 12, sd * 6);
+      flashPulse(time);
+    }
+    if (song.stabs && s === 10 && Math.random() < .5) ch.notes.slice(1).forEach((n, i) => keys(time + i * .02, n, sd * 3, .05));
+    if (!intro && s === 10 && Math.random() < .7) bass(time, ch.root - 12 + (Math.random() < .5 ? 7 : 0), sd * 4);
+
+    if (drums) {
+      if (s === 0 || s === 10 || (s === 7 && Math.random() < .3) || (s === 11 && Math.random() < .2)) { kick(time, .85); if (s === 0) flashPulse(time); }
+      if (s === 4 || s === 12) snare(time, .9 + Math.random() * .1);
+      if (s % 2 === 0) hat(time, s % 4 === 0 ? .9 : .6 + Math.random() * .3);
+      else if (Math.random() < .22) hat(time, .35);
+    }
+
+    // sparse melody in the middle of the song
+    const melodic = bar >= 4 && bar < 28 && !breakdown;
+    if (melodic && s % 2 === 0 && Math.random() < .16) {
+      melNote = Math.max(0, Math.min(PENTA.length - 1, melNote + pick([-2,-1,-1,1,1,2])));
+      lead(time, 72 + song.key % 12 - (song.key > 6 ? 12 : 0) + PENTA[melNote], .07 + Math.random() * .04);
+    }
+  }
+
+  function tick() {
+    const ahead = document.hidden ? 1.5 : .2;
+    while (nextTime < ctx.currentTime + ahead) {
+      scheduleStep(step, nextTime);
+      nextTime += 60 / song.bpm / 4;
+      step++;
+      if (step === 16) {
+        step = 0; bar++;
+        if (bar >= BARS) newSong(); else updateMeta();
+      }
+    }
+  }
+
+  /* ---------- UI ---------- */
+  let pulseTimers = [];
+  function flashPulse(when) {
+    const ms = Math.max(0, (when - ctx.currentTime) * 1000);
+    pulseTimers.push(setTimeout(() => { playBtn.classList.add('pulse'); setTimeout(() => playBtn.classList.remove('pulse'), 120); }, ms));
+    if (pulseTimers.length > 64) pulseTimers = pulseTimers.slice(-32);
+  }
+
+  let wakeLock = null;
+  async function lockScreen() {
+    try { if ('wakeLock' in navigator && playing) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lockScreen(); });
+
+  async function start() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (!ctx) { setup(); newSong(); }
+    await ctx.resume();
+    nextTime = ctx.currentTime + .1;
+    timer = setInterval(tick, 25);
+    tick();
+    playing = true;
+    playBtn.classList.add('on');
+    playBtn.setAttribute('aria-label', 'Pause');
+    icon.innerHTML = PAUSE;
+    $('status').textContent = 'Now playing';
+    nextBtn.disabled = false;
+    lockScreen();
+  }
+  async function stop() {
+    clearInterval(timer); timer = null;
+    pulseTimers.forEach(clearTimeout); pulseTimers = [];
+    await ctx.suspend();
+    playing = false;
+    playBtn.classList.remove('on');
+    playBtn.setAttribute('aria-label', 'Play');
+    icon.innerHTML = PLAY;
+    $('status').textContent = 'Paused';
+    try { wakeLock && wakeLock.release(); } catch (e) {}
+  }
+  playBtn.addEventListener('click', () => playing ? stop() : start());
+  nextBtn.addEventListener('click', () => {
+    if (!ctx) return;
+    newSong();
+    nextTime = Math.max(nextTime, ctx.currentTime + .05);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); playing ? stop() : start(); }
+  });
+
+  /* ---------- rain on the window ---------- */
+  const cv = $('rain'), c2 = cv.getContext('2d');
+  let drops = [];
+  function size() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drops = Array.from({ length: Math.round(innerWidth / 9) }, () => ({
+      x: Math.random() * innerWidth, y: Math.random() * innerHeight,
+      l: 8 + Math.random() * 18, v: 1.5 + Math.random() * 3
+    }));
+  }
+  function draw() {
+    c2.clearRect(0, 0, innerWidth, innerHeight);
+    c2.strokeStyle = 'rgba(143,151,179,.35)'; c2.lineWidth = 1;
+    c2.beginPath();
+    for (const d of drops) {
+      c2.moveTo(d.x, d.y); c2.lineTo(d.x - d.l * .08, d.y + d.l);
+      d.y += d.v; d.x -= d.v * .08;
+      if (d.y > innerHeight) { d.y = -d.l; d.x = Math.random() * innerWidth; }
+    }
+    c2.stroke();
+    requestAnimationFrame(draw);
+  }
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    size(); addEventListener('resize', size); requestAnimationFrame(draw);
+  }
+})();
+</script>
+</body>
+</html>
