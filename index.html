@@ -159,27 +159,61 @@ h1 {
 
   /* ---------- music theory ---------- */
   const KEYS = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+  // chord colours as intervals above the root (the bass plays the root)
   const Q = {
-    maj9: [4,7,11,14], m9: [3,7,10,14], '13': [4,10,14,21], m7: [3,7,10,15], sus: [5,7,10,14], maj7: [4,7,11,16]
+    maj9: [4,7,11,14], maj7: [4,7,11,16], '6/9': [4,9,14,19],
+    m9: [3,7,10,14], m7: [3,7,10,15], m11: [3,10,14,17],
+    '13': [4,10,14,21], '9': [4,10,14,19], '7b9': [4,10,13,19],
+    sus: [5,7,10,14], m7b5: [3,6,10,15],
   };
-  const PROGS = [
-    [[2,'m9'],[7,'13'],[0,'maj9'],[9,'m9']],
-    [[0,'maj9'],[9,'m9'],[5,'maj9'],[7,'sus']],
-    [[9,'m9'],[5,'maj9'],[0,'maj7'],[7,'13']],
+  // progressions as [scale step above the tonic, chord colour]
+  const MAJ_PROGS = [
+    [[2,'m9'],[7,'13'],[0,'maj9'],[0,'6/9']],
+    [[0,'maj9'],[9,'m9'],[2,'m9'],[7,'13']],
     [[5,'maj9'],[4,'m7'],[2,'m9'],[0,'maj9']],
-    [[2,'m9'],[7,'13'],[4,'m7'],[9,'m9']],
+    [[5,'maj9'],[5,'m9'],[0,'maj9'],[0,'maj7']],
+    [[0,'maj9'],[4,'7b9'],[9,'m9'],[7,'sus']],
+    [[9,'m9'],[2,'9'],[5,'maj9'],[7,'13']],
     [[5,'maj7'],[7,'sus'],[4,'m7'],[9,'m9']],
+    [[0,'maj9'],[10,'9'],[5,'maj9'],[5,'m9']],
   ];
-  const PENTA = [0,2,4,7,9,12,14,16];
+  const MIN_PROGS = [
+    [[0,'m9'],[5,'m9'],[10,'13'],[3,'maj9']],
+    [[0,'m9'],[8,'maj7'],[3,'maj9'],[10,'sus']],
+    [[5,'m9'],[10,'13'],[0,'m9'],[0,'m11']],
+    [[8,'maj9'],[7,'7b9'],[0,'m9'],[0,'m11']],
+    [[2,'m7b5'],[7,'7b9'],[0,'m9'],[5,'m9']],
+    [[0,'m9'],[2,'m7b5'],[3,'maj9'],[7,'7b9']],
+  ];
+  const SCALES = { major: [0,2,4,5,7,9,11], minor: [0,2,3,5,7,8,10] };
+  // song shapes: [section, bars]. A = theme, B = bridge
+  const FORMS = [
+    [['intro',4],['A',8],['B',8],['A',8],['break',4],['B',8],['outro',4]],
+    [['intro',2],['A',8],['A',8],['B',8],['break',4],['A',8],['outro',4]],
+    [['intro',4],['A',8],['B',8],['break',4],['A',8],['B',4],['outro',4]],
+    [['intro',2],['A',8],['B',8],['A',8],['B',8],['outro',4]],
+  ];
+  const LABEL = { intro: 'intro', A: 'theme', B: 'bridge', break: 'interlude', outro: 'outro' };
+  const FILTER = { intro: 1600, A: 3400, B: 4200, break: 1150, outro: 2400 };
+  // 16-step drum grooves. x hit, g ghost, ? sometimes, o open hat
+  const GROOVES = [
+    { k: 'x.........x.....', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' },
+    { k: 'x......?..x.....', s: '....x..g....x...', h: 'x.x.x.x.x.x.x.xo' },
+    { k: 'x..x......x.....', s: '....x.......x..g', h: 'x.xxx.x.x.xxx.x.' },
+    { k: 'x.....x...x..?..', s: '....x.......x...', h: 'x.x.x?x.x.x.x?x.' },
+    { k: 'x.......x?......', s: '....x......gx...', h: 'x...x...x...x...' },
+    { k: 'x.?.......x.....', s: '....x.g.....x.g.', h: 'x.x.x.x.x.x.x.x.' },
+  ];
   const ADJ = ['rainy','sleepy','late','quiet','warm','foggy','slow','soft','blue','paper','dusty','lamp-lit','Sunday','4am','chamomile','window-seat'];
   const NOUN = ['window','bus home','library','notebook','tea','margins','radiator','highlighters','study hall','flashcards','city lights','headphones','cardigan','last chapter','raincoat','desk lamp'];
   const pick = a => a[Math.floor(Math.random()*a.length)];
+  const chance = p => Math.random() < p;
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  const pcOf = m => ((m % 12) + 12) % 12;
 
   /* ---------- audio ---------- */
-  let ctx, master, reverb, delayIn, wobble, noiseBuf, vinylSrc;
-  let song, step = 0, bar = 0, nextTime = 0, timer = null, playing = false, melNote = 3;
-  const BARS = 32;
+  let ctx, master, tape, reverb, delayIn, delayLine, wobble, noiseBuf, vinylSrc;
+  let song, step = 0, bar = 0, nextTime = 0, timer = null, playing = false;
 
   function makeNoise(seconds) {
     const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -192,8 +226,8 @@ h1 {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.ratio.value = 3;
-    const tape = ctx.createBiquadFilter();
-    tape.type = 'lowpass'; tape.frequency.value = 3800; tape.Q.value = .4;
+    tape = ctx.createBiquadFilter();
+    tape.type = 'lowpass'; tape.frequency.value = 1600; tape.Q.value = .4;
     master = ctx.createGain(); master.gain.value = .8;
     master.connect(tape); tape.connect(comp); comp.connect(ctx.destination);
 
@@ -208,11 +242,12 @@ h1 {
     const revOut = ctx.createGain(); revOut.gain.value = .35;
     reverb.connect(revOut); revOut.connect(master);
 
-    // dotted-eighth-ish echo for the melody
+    // dotted-eighth echo for the melody, retimed to each song's tempo
     delayIn = ctx.createGain();
-    const dl = ctx.createDelay(2), fb = ctx.createGain(), dlf = ctx.createBiquadFilter();
-    dl.delayTime.value = .55; fb.gain.value = .38; dlf.type = 'lowpass'; dlf.frequency.value = 1600;
-    delayIn.connect(dl); dl.connect(dlf); dlf.connect(fb); fb.connect(dl); dlf.connect(master); dlf.connect(reverb);
+    delayLine = ctx.createDelay(2);
+    const fb = ctx.createGain(), dlf = ctx.createBiquadFilter();
+    delayLine.delayTime.value = .55; fb.gain.value = .38; dlf.type = 'lowpass'; dlf.frequency.value = 1600;
+    delayIn.connect(delayLine); delayLine.connect(dlf); dlf.connect(fb); fb.connect(delayLine); dlf.connect(master); dlf.connect(reverb);
 
     // tape wobble: slow detune LFO shared by every pitched voice
     const lfo = ctx.createOscillator(); lfo.frequency.value = .35;
@@ -241,49 +276,84 @@ h1 {
     return o;
   }
 
+  // chord instrument; each song picks one of three tones
   function keys(t, midi, dur, vel) {
+    const tone = song.keysTone, fr = mtof(midi);
     const g = ctx.createGain(), f = ctx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = 1500;
+    f.type = 'lowpass';
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vel, t + .015);
-    g.gain.exponentialRampToValueAtTime(vel * .35, t + .9);
-    g.gain.setValueAtTime(vel * .35, t + dur);
-    g.gain.exponentialRampToValueAtTime(.0001, t + dur + .8);
-    const end = t + dur + .9, fr = mtof(midi);
-    osc('sine', fr, t, end, f);
-    osc('triangle', fr * 1.002, t, end, f);
-    const bell = ctx.createGain(); bell.gain.value = .12; bell.connect(f);
-    osc('sine', fr * 4, t, end, bell);
+    let end;
+    if (tone === 'pad') {
+      f.frequency.value = 1150;
+      g.gain.linearRampToValueAtTime(vel * .75, t + .3);
+      g.gain.setTargetAtTime(0, t + Math.max(.35, dur), .4);
+      end = t + Math.max(.35, dur) + 2;
+      osc('sine', fr, t, end, f);
+      osc('triangle', fr * 1.004, t, end, f);
+    } else {
+      const felt = tone === 'felt', att = felt ? .008 : .015;
+      f.frequency.value = felt ? 950 : 1500;
+      g.gain.linearRampToValueAtTime(vel, t + att);
+      g.gain.setTargetAtTime(vel * (felt ? .2 : .35), t + att, felt ? .18 : .3);
+      g.gain.setTargetAtTime(0, t + Math.max(att + .02, dur), felt ? .15 : .25);
+      end = t + Math.max(att + .02, dur) + 1.4;
+      osc('sine', fr, t, end, f);
+      osc('triangle', fr * 1.002, t, end, f);
+      const bell = ctx.createGain(); bell.gain.value = felt ? .04 : .12; bell.connect(f);
+      osc('sine', fr * 4, t, end, bell);
+    }
     f.connect(g); g.connect(master);
     const s = ctx.createGain(); s.gain.value = .5; g.connect(s); s.connect(reverb);
   }
 
-  function bass(t, midi, dur) {
+  function bass(t, midi, dur, vel = 1) {
     const g = ctx.createGain(), f = ctx.createBiquadFilter();
     f.type = 'lowpass'; f.frequency.value = 260;
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(.55, t + .03);
-    g.gain.setValueAtTime(.45, t + dur * .8);
+    g.gain.linearRampToValueAtTime(.55 * vel, t + .03);
+    g.gain.setValueAtTime(.45 * vel, t + dur * .8);
     g.gain.exponentialRampToValueAtTime(.0001, t + dur);
     osc('sine', mtof(midi), t, t + dur + .05, f);
     osc('triangle', mtof(midi), t, t + dur + .05, f);
     f.connect(g); g.connect(master);
   }
 
-  function lead(t, midi, vel) {
+  // melody instrument; each song picks one of three tones
+  function lead(t, midi, dur, vel) {
+    const tone = song.leadTone, fr = mtof(midi);
     const g = ctx.createGain(), f = ctx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = 2200;
+    f.type = 'lowpass';
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vel, t + .01);
-    g.gain.exponentialRampToValueAtTime(.0001, t + 1.1);
-    osc('triangle', mtof(midi), t, t + 1.2, f);
+    let end;
+    if (tone === 'flute') {
+      f.frequency.value = 2600;
+      g.gain.linearRampToValueAtTime(vel * 1.1, t + .07);
+      g.gain.setTargetAtTime(0, t + Math.max(.1, dur), .12);
+      end = t + Math.max(.1, dur) + .9;
+      const o = osc('sine', fr, t, end, f);
+      const vib = ctx.createOscillator(), vg = ctx.createGain();
+      vib.frequency.value = 4.6; vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(14, t + .45);
+      vib.connect(vg); vg.connect(o.detune); vib.start(t); vib.stop(end);
+    } else if (tone === 'pluck') {
+      f.frequency.setValueAtTime(2400, t); f.frequency.exponentialRampToValueAtTime(520, t + .25); f.Q.value = 2;
+      g.gain.linearRampToValueAtTime(vel * .7, t + .005);
+      g.gain.setTargetAtTime(0, t + .005, .16);
+      end = t + 1.1;
+      osc('sawtooth', fr, t, end, f);
+    } else {
+      f.frequency.value = 2200;
+      g.gain.linearRampToValueAtTime(vel, t + .01);
+      g.gain.setTargetAtTime(0, t + .01, Math.min(.4, .14 + dur * .25));
+      end = t + 1.8;
+      osc('triangle', fr, t, end, f);
+    }
     f.connect(g); g.connect(master); g.connect(delayIn);
     const s = ctx.createGain(); s.gain.value = .6; g.connect(s); s.connect(reverb);
   }
 
   function kick(t, vel) {
     const o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.setValueAtTime(115, t);
+    o.frequency.setValueAtTime(song.kit.kick, t);
     o.frequency.exponentialRampToValueAtTime(42, t + .14);
     g.gain.setValueAtTime(vel, t);
     g.gain.exponentialRampToValueAtTime(.001, t + .45);
@@ -302,66 +372,287 @@ h1 {
   }
 
   function snare(t, vel) {
+    if (song.kit.rim) {   // rimshot / side-stick
+      noiseHit(t, 'bandpass', 3200, 3, vel * .35, .05, .4);
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = 430;
+      g.gain.setValueAtTime(vel * .3, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + .07);
+      return;
+    }
     noiseHit(t, 'bandpass', 1700, .8, vel * .42, .22, .5);
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'triangle'; o.frequency.value = 185;
     g.gain.setValueAtTime(vel * .25, t); g.gain.exponentialRampToValueAtTime(.001, t + .1);
     o.connect(g); g.connect(master); o.start(t); o.stop(t + .12);
   }
-  const hat = (t, vel) => noiseHit(t, 'highpass', 7000, .5, vel * .09, .045, 0);
+  const hat = (t, vel) => noiseHit(t, 'highpass', song.kit.hat, .5, vel * .09, .045, 0);
+  const openHat = (t, vel) => noiseHit(t, 'highpass', song.kit.hat - 800, .5, vel * .06, .28, .2);
 
-  /* ---------- song structure ---------- */
+  /* ---------- songwriting ----------
+     Each song is written in full before it plays: a form (intro, theme,
+     bridge, interlude, outro), two chord progressions with voice-led
+     voicings and turnarounds, a short melodic motif that is stated,
+     answered, developed and resolved, and a groove with fills. */
+
+  const same = (a, b) => a.deg === b.deg && a.q === b.q;
+
+  function mkChord(deg, q) {
+    const pc = (song.key + deg) % 12;
+    let root = 36 + pc; if (root > 45) root -= 12;
+    return { deg, q, pc, bass: root, tones: [pc, ...Q[q].map(i => (pc + i) % 12)] };
+  }
+
+  // pick the inversion/octave that moves the fewest semitones from the last chord
+  function voice(ch, prev) {
+    const base = Q[ch.q].map(i => 48 + ch.pc + i);
+    const cands = [];
+    for (let k = 0; k < base.length; k++) {
+      const inv = base.map((n, i) => i < k ? n + 12 : n).sort((a, b) => a - b);
+      for (const o of [-24, -12, 0, 12]) {
+        const v = inv.map(n => n + o);
+        if (v[0] >= 50 && v[v.length - 1] <= 81) cands.push(v);
+      }
+    }
+    const mean = v => v.reduce((a, n) => a + n, 0) / v.length;
+    const cost = v => (prev ? v.reduce((a, n, i) => a + Math.abs(n - prev[i]), 0) : 0) + Math.abs(mean(v) - 65) * .4;
+    cands.sort((a, b) => cost(a) - cost(b));
+    return cands[0];
+  }
+
+  // a two-bar idea: a rhythmic "call" in bar one, a short reply in bar two
+  function makeMotif(busy) {
+    const slots = [0,2,3,4,6,7,8,10,11,12,14];
+    const n = 3 + Math.floor(Math.random() * 2) + (busy ? 1 : 0);
+    const first = chance(.3) ? 2 : 0;
+    const on = new Set([first]);
+    for (let g = 0; on.size < n && g < 60; g++) { const x = pick(slots); if (x > first) on.add(x); }
+    const reply = chance(.5) ? [pick([16, 18])] : [16, pick([20, 22])];
+    const times = [...on].sort((a, b) => a - b).concat(reply);
+    let deg = 0;
+    return times.map((s, i) => {
+      if (i) deg = Math.max(-4, Math.min(6, deg + pick([-2,-1,-1,1,1,2,0,3,-3])));
+      const d = i === times.length - 1 ? 8 + Math.floor(Math.random() * 4) : Math.min(6, times[i + 1] - s);
+      return { s, d, deg };
+    });
+  }
+
+  // the same idea, reshaped the ways a writer would
+  function variants(m, anchor) {
+    const copy = () => m.map(n => ({ ...n }));
+    const answer = copy().map(n => ({ ...n, deg: n.deg + song.answerShift }));
+    const ornament = copy();
+    const i = ornament.findIndex((n, j) => j > 0 && n.d >= 3 && n.s < 15 && ornament[j - 1].s < n.s - 1);
+    if (i > 0) ornament.splice(i, 0, { s: ornament[i].s - 1, d: 1, deg: ornament[i].deg + 1 });
+    const late = copy().map(n => ({ ...n, s: n.s + 2 })).filter(n => n.s < 32);
+    const call = copy().filter(n => n.s < 16);
+    const lastAbs = anchor + (call.length ? call[call.length - 1].deg : 0);
+    const home = Math.round(lastAbs / 7) * 7 - anchor;          // nearest tonic
+    const cadence = call.concat({ s: pick([16, 18]), d: 12, deg: home });
+    const fragment = copy().slice(0, 3).map(n => ({ ...n, d: Math.min(n.d, 4) }));
+    return { orig: copy(), answer, ornament, late, cadence, fragment };
+  }
+
+  function realize(absDeg, ch, strong) {
+    const sc = SCALES[song.mode];
+    const oct = Math.floor(absDeg / 7), idx = ((absDeg % 7) + 7) % 7;
+    let m = song.leadTonic + 12 * oct + sc[idx];
+    if (strong) {                                   // land on a chord tone
+      let best = m, bd = 99;
+      for (let d = -2; d <= 2; d++) if (ch.tones.includes(pcOf(m + d)) && Math.abs(d) < bd) { bd = Math.abs(d); best = m + d; }
+      m = best;
+    } else if (ch.tones.includes(pcOf(m - 1)) && !ch.tones.includes(pcOf(m))) m -= 1;  // dodge the clashing half-step
+    while (m > 86) m -= 12;
+    while (m < 60) m += 12;
+    return m;
+  }
+
+  function arrange() {
+    const form = pick(FORMS), bars = [];
+    const seen = { A: 0, B: 0 };
+    form.forEach(([sec, len], si) => {
+      const next = form[si + 1];
+      const prog = sec === 'B' ? song.progB : song.progA;
+      const occ = sec in seen ? seen[sec]++ : 0;
+      for (let r = 0; r < len; r++) {
+        const [deg, q] = prog[Math.floor(r / song.hr) % prog.length];
+        let c0 = mkChord(deg, q), c1 = c0;
+        const lastBar = r === len - 1;
+        if (lastBar && next && chance(.6)) {        // turnaround: dominant of the next section's first chord
+          const [nd] = (next[0] === 'B' ? song.progB : song.progA)[0];
+          c1 = mkChord((nd + 7) % 12, pick(['7b9', '13']));
+        }
+        if (sec === 'outro' && lastBar) c0 = c1 = mkChord(0, song.mode === 'major' ? 'maj9' : 'm9');
+        bars.push({ sec, r, len, occ, next: next ? next[0] : null, chords: [c0, c1] });
+      }
+    });
+
+    // voice leading across the whole song
+    let prev = null;
+    bars.forEach(b => b.chords.forEach(c => { if (!c.v) { c.v = voice(c, prev); } prev = c.v; }));
+
+    bars.forEach((b, i) => {
+      b.ev = Array.from({ length: 16 }, () => []);
+      const add = (s, e) => b.ev[s].push(e);
+      const [c0, c1] = b.chords, split = !same(c0, c1);
+      const nb = bars[i + 1];
+
+      // --- chords ---
+      const comp = b.sec === 'A' ? song.compA : b.sec === 'B' ? song.compB : 'hold';
+      const cv = b.sec === 'break' || b.sec === 'intro' ? .07 : .085;
+      if (b.sec === 'outro' && b.r === b.len - 1) add(0, { t: 'chord', notes: c0.v, dur: 22, vel: .08, strum: .04 });
+      else if (comp === 'stabs') {
+        if (!b.pushed) add(0, { t: 'chord', notes: c0.v, dur: 5, vel: cv });
+        if (chance(.6)) add(7, { t: 'chord', notes: c0.v.slice(1), dur: 2, vel: cv * .6 });
+        add(10, { t: 'chord', notes: c1.v, dur: 4, vel: cv * .8 });
+      } else if (comp === 'broken') {
+        c0.v.forEach((n, j) => add(j * 2, { t: 'chord', notes: [n], dur: 10 - j * 2, vel: cv * .8 }));
+        [...c1.v].reverse().forEach((n, j) => add(8 + j * 2, { t: 'chord', notes: [n], dur: 8 - j * 2, vel: cv * .7 }));
+      } else {
+        if (!b.pushed) add(0, { t: 'chord', notes: c0.v, dur: split ? 7 : 15, vel: cv });
+        if (split) add(8, { t: 'chord', notes: c1.v, dur: 7, vel: cv * .9 });
+      }
+      // anticipate the next bar's chord on the "and" of four
+      if (comp === 'push' && nb && nb.sec === b.sec && !same(nb.chords[0], c1) && !split) {
+        add(14, { t: 'chord', notes: nb.chords[0].v, dur: 16, vel: cv });
+        nb.pushed = true;
+      }
+
+      // --- bass ---
+      const bassOn = b.sec !== 'intro' || (b.r === b.len - 1 && chance(.5));
+      if (bassOn && b.sec === 'break') add(0, { t: 'bass', midi: c0.bass, dur: 12, vel: .7 });
+      else if (bassOn && b.sec === 'outro' && b.r === b.len - 1) add(0, { t: 'bass', midi: c0.bass, dur: 16 });
+      else if (bassOn) {
+        const style = song.bassStyle;
+        const fifth = c0.bass + 7 > 47 ? c0.bass - 5 : c0.bass + 7;
+        if (style === 'sparse') {
+          add(0, { t: 'bass', midi: c0.bass, dur: split ? 7 : 12 });
+          if (split) add(8, { t: 'bass', midi: c1.bass, dur: 7 });
+        } else if (style === 'walk') {
+          add(0, { t: 'bass', midi: c0.bass, dur: 5 });
+          if (chance(.6)) add(6, { t: 'bass', midi: fifth, dur: 3, vel: .8 });
+          add(split ? 8 : 10, { t: 'bass', midi: c1.bass, dur: 3 });
+          if (nb && nb.sec !== 'break') add(14, { t: 'bass', midi: nb.chords[0].bass + pick([-1, 1]), dur: 2, vel: .75 });
+        } else {
+          add(0, { t: 'bass', midi: c0.bass, dur: 6 });
+          if (split) add(8, { t: 'bass', midi: c1.bass, dur: 6 });
+          else if (chance(.7)) add(10, { t: 'bass', midi: chance(.5) ? fifth : c0.bass, dur: 4 });
+        }
+      }
+
+      // --- melody ---
+      if (b.sec === 'A' || b.sec === 'B' || b.sec === 'break') {
+        const isB = b.sec === 'B';
+        const V = isB ? song.varB : song.varA, anchor = isB ? song.anchorB : song.anchorA;
+        let kind = null, half = b.r % 2;
+        if (b.sec === 'break') { if (b.r % 2 === 0) { kind = 'fragment'; half = 0; } }
+        else {
+          const plan = b.len >= 8
+            ? (b.occ === 0 ? ['orig', 'answer', 'ornament', 'cadence'] : ['late', 'answer', 'orig', 'cadence'])
+            : ['orig', 'cadence'];
+          kind = plan[Math.floor(b.r / 2)];
+          if (!isB && b.occ === 0 && song.lateEntry && b.r < 4) kind = null;   // let the chords breathe first
+        }
+        if (kind) V[kind].filter(n => Math.floor(n.s / 16) === half).forEach((n, j) => {
+          const s = n.s - half * 16, ch = b.chords[s < 8 ? 0 : 1];
+          const midi = realize(anchor + n.deg, ch, s % 8 === 0 || n.d >= 4);
+          const vel = (b.sec === 'break' ? .06 : .085) + (j === 0 ? .015 : 0) + (Math.random() - .5) * .02;
+          add(s, { t: 'lead', midi, dur: n.d, vel });
+        });
+      }
+
+      // --- drums ---
+      let mode = 'off';
+      if (b.sec === 'A' || b.sec === 'B') {
+        mode = 'full';
+        if (b.r === b.len - 1) mode = nb && nb.sec !== 'break' && chance(.65) ? 'fill' : 'drop';
+      } else if (b.sec === 'outro' && b.r < b.len - 2) mode = 'full';
+      else if (b.sec === 'intro' && b.r === b.len - 1 && song.introHats) mode = 'hatsIn';
+      if (mode !== 'off') {
+        const G = b.sec === 'B' ? song.grooveB : song.grooveA;
+        const hit = (c, p = .4) => c === 'x' || c === 'g' || (c === '?' && chance(p));
+        for (let s = 0; s < 16; s++) {
+          const late = s >= 8, tail = s >= 12;
+          const drumsHere = mode === 'full' || (mode === 'fill' && !tail) || ((mode === 'drop' || mode === 'hatsIn') && !late);
+          if (drumsHere && mode !== 'hatsIn') {
+            if (hit(G.k[s])) add(s, { t: 'kick', vel: .85 });
+            if (hit(G.s[s])) add(s, { t: 'snare', vel: G.s[s] === 'x' ? .9 + Math.random() * .1 : .3 });
+          }
+          if (mode === 'fill' && tail && s > 12) add(s, { t: 'snare', vel: .2 + (s - 12) * .14 });
+          if (mode === 'hatsIn' && !late) continue;
+          const hc = G.h[s];
+          if (hc === 'o') add(s, { t: 'ohat', vel: .8 });
+          else if (hit(hc, .5)) add(s, { t: 'hat', vel: s % 4 === 0 ? .9 : .6 + Math.random() * .3 });
+          else if (s % 2 && chance(.2)) add(s, { t: 'hat', vel: .35 });
+        }
+      }
+    });
+    return bars;
+  }
+
   function newSong() {
+    const mode = chance(.45) ? 'minor' : 'major';
+    const pool = mode === 'major' ? MAJ_PROGS : MIN_PROGS;
+    const progA = pick(pool);
+    let progB = pick(pool); while (progB === progA) progB = pick(pool);
+    const key = Math.floor(Math.random() * 12);
+    let leadTonic = 60 + key; if (leadTonic < 62) leadTonic += 12;
     song = {
-      key: Math.floor(Math.random() * 12),
-      bpm: 68 + Math.floor(Math.random() * 15),
-      prog: pick(PROGS),
+      key, mode, progA, progB, leadTonic,
+      bpm: 66 + Math.floor(Math.random() * 18),
       name: `${pick(ADJ)} ${pick(NOUN)}`,
-      stabs: Math.random() < .5,
+      swing: .16 + Math.random() * .18,
+      hr: chance(.45) ? 2 : 1,                       // bars per chord
+      keysTone: pick(['rhodes', 'rhodes', 'felt', 'pad']),
+      leadTone: pick(['keys', 'flute', 'pluck']),
+      compA: pick(['hold', 'push', 'stabs']),
+      compB: pick(['hold', 'push', 'broken', 'stabs']),
+      bassStyle: pick(['hold', 'walk', 'sparse']),
+      grooveA: pick(GROOVES), grooveB: pick(GROOVES),
+      kit: { kick: 95 + Math.random() * 30, rim: chance(.35), hat: 6000 + Math.random() * 3000 },
+      answerShift: pick([-2, 2, 3]),
+      anchorA: pick([2, 4]), anchorB: pick([4, 5, 7]),
+      lateEntry: chance(.4), introHats: chance(.5),
+      wobble: 5 + Math.random() * 10,
     };
+    song.varA = variants(makeMotif(false), song.anchorA);
+    song.varB = variants(makeMotif(chance(.5)), song.anchorB);
+    song.bars = arrange();
     bar = 0; step = 0;
+    if (ctx) {
+      const now = ctx.currentTime;
+      wobble.gain.setTargetAtTime(song.wobble, now, .5);
+      delayLine.delayTime.setTargetAtTime(60 / song.bpm * .75, now, .3);
+    }
     $('track').textContent = song.name;
     updateMeta();
   }
   function updateMeta() {
-    $('meta').textContent = `${song.bpm} BPM · ${KEYS[song.key]} major · bar ${bar + 1}/${BARS}`;
-  }
-
-  function chordFor(b) {
-    const [deg, q] = song.prog[b % song.prog.length];
-    let root = 48 + ((song.key + deg) % 12);       // C3..B3
-    if (root > 53) root -= 12;
-    return { root, notes: Q[q].map(i => root + i + (root < 46 ? 12 : 0)) };
+    const b = song.bars[bar];
+    $('meta').textContent = `${song.bpm} BPM · ${KEYS[song.key]} ${song.mode} · ${LABEL[b.sec]}`;
   }
 
   function scheduleStep(s, t) {
     const sd = 60 / song.bpm / 4;
-    const swing = (s % 2) ? sd * .28 : 0;
+    const swing = (s % 2) ? sd * song.swing : 0;
     const time = t + swing + (Math.random() - .5) * .008;
-    const intro = bar < 2, breakdown = bar >= 16 && bar < 18, outro = bar >= BARS - 1;
-    const drums = !intro && !breakdown && !outro;
-    const ch = chordFor(bar);
+    const B = song.bars[bar];
 
     if (s === 0) {
-      ch.notes.forEach((n, i) => keys(time + i * .025, n, sd * 15, .085));
-      if (!intro) bass(time, ch.root - 12, sd * 6);
+      const target = B.sec === 'outro' && B.r === B.len - 1 ? 900 : FILTER[B.sec];
+      tape.frequency.setTargetAtTime(target, time, 1.2);
       flashPulse(time);
     }
-    if (song.stabs && s === 10 && Math.random() < .5) ch.notes.slice(1).forEach((n, i) => keys(time + i * .02, n, sd * 3, .05));
-    if (!intro && s === 10 && Math.random() < .7) bass(time, ch.root - 12 + (Math.random() < .5 ? 7 : 0), sd * 4);
-
-    if (drums) {
-      if (s === 0 || s === 10 || (s === 7 && Math.random() < .3) || (s === 11 && Math.random() < .2)) { kick(time, .85); if (s === 0) flashPulse(time); }
-      if (s === 4 || s === 12) snare(time, .9 + Math.random() * .1);
-      if (s % 2 === 0) hat(time, s % 4 === 0 ? .9 : .6 + Math.random() * .3);
-      else if (Math.random() < .22) hat(time, .35);
-    }
-
-    // sparse melody in the middle of the song
-    const melodic = bar >= 4 && bar < 28 && !breakdown;
-    if (melodic && s % 2 === 0 && Math.random() < .16) {
-      melNote = Math.max(0, Math.min(PENTA.length - 1, melNote + pick([-2,-1,-1,1,1,2])));
-      lead(time, 72 + song.key % 12 - (song.key > 6 ? 12 : 0) + PENTA[melNote], .07 + Math.random() * .04);
+    for (const e of B.ev[s]) {
+      switch (e.t) {
+        case 'chord': e.notes.forEach((n, i) => keys(time + i * (e.strum || .025), n, e.dur * sd, e.vel)); break;
+        case 'bass': bass(time, e.midi, e.dur * sd, e.vel); break;
+        case 'lead': lead(time + (Math.random() - .5) * .012, e.midi, e.dur * sd, e.vel); break;
+        case 'kick': kick(time, e.vel); break;
+        case 'snare': snare(time, e.vel); break;
+        case 'hat': hat(time, e.vel); break;
+        case 'ohat': openHat(time, e.vel); break;
+      }
     }
   }
 
@@ -373,7 +664,7 @@ h1 {
       step++;
       if (step === 16) {
         step = 0; bar++;
-        if (bar >= BARS) newSong(); else updateMeta();
+        if (bar >= song.bars.length) newSong(); else updateMeta();
       }
     }
   }
